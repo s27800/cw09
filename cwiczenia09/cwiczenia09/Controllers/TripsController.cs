@@ -1,4 +1,5 @@
 ﻿using cwiczenia09.Data;
+using cwiczenia09.Models;
 using cwiczenia09.Models.DTOs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -90,20 +91,66 @@ public class TripsController : ControllerBase
     [HttpDelete("{idClient}")]
     public async Task<IActionResult> DeleteClient(int idClient)
     {
-        //zwraca blad jak klient ma przypisana jakas wycieczke
+        //bad request if client does not exist
+        var doesClientExist = _context.Clients.Any(c => c.IdClient == idClient);
         
-        return Ok();
+        if (!doesClientExist)
+            return BadRequest("Client does not exist.");
+        
+        //bad request if client is assigned to trips
+        var doesClientHaveTrips = _context.ClientTrips.Any(c => c.IdClient == idClient);
+        
+        if (doesClientHaveTrips)
+            return BadRequest("Client cannot be assigned to any trips.");
+
+        //remove client
+        var client = await _context.Clients.FirstAsync(c => c.IdClient == idClient);
+        
+        _context.Clients.Remove(client);
+        await _context.SaveChangesAsync();
+        
+        return Ok("Deleted client with id " + idClient + ".");
     }
 
     [HttpPost("{idTrip}/clients")]
-    public async Task<IActionResult> AssignClientToTrip()
+    public async Task<IActionResult> AssignClientToTrip(int idTrip, AddClientToTrip obj)
     {
-        //zwraca blad jak klient o podanym peselu istnieje
-        //zwraca blad jak klient o podanym peselu jest juz przypisany do tej wycieczki
-        //zwraca blad jak wycieczka nie istnieje lub juz sie odbyla
-        //PaymentDate null tylko dla klientow ktorzy nie zaplacili jeszcze
-        //RegisteredAt ma sie zgadzac w tabeli clientTrip
+        //bad request if client does not exist
+        var doesClientExist = _context.Clients.Any(c => c.Pesel == obj.Pesel);
+
+        if (!doesClientExist)
+            return BadRequest("Client does not exist.");
         
-        return Ok();
+        //bad request if client is already assigned to the trip
+        var client = await _context.Clients.Where(c => c.Pesel == obj.Pesel).FirstAsync();
+        var isClientAssignedToTrip = _context.ClientTrips.Any(c => c.IdClient == client.IdClient && c.IdTrip == idTrip);
+
+        if (isClientAssignedToTrip)
+            return BadRequest("Client is already assigned to that trip.");
+        
+        //bad request if trip does not exist
+        var doesTripExist = _context.Trips.Any(t => t.IdTrip == idTrip);
+
+        if (!doesTripExist)
+            return BadRequest("Trip does not exist.");
+        
+        //bad request if trip was in the past
+        var tripDate = await _context.Trips.Where(t => t.IdTrip == idTrip).Select(t => t.DateFrom).FirstAsync();
+
+        if (tripDate <= DateTime.Today)
+            return BadRequest("This trip was in the past.");
+
+        var clientTrip = new ClientTrip()
+        {
+            IdClient = client.IdClient,
+            IdTrip = idTrip,
+            RegisteredAt = DateTime.Now,
+            PaymentDate = obj.PaymentDate
+        };
+
+        await _context.ClientTrips.AddAsync(clientTrip);
+        await _context.SaveChangesAsync();
+        
+        return Ok("Assigned client to the trip.");
     }
 }
